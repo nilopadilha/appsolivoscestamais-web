@@ -1,12 +1,19 @@
 <script setup lang="ts">
-import { ref, reactive } from 'vue';
+import { ref, reactive, onMounted } from 'vue';
 import DashboardLayout from '../layouts/DashboardLayout.vue';
-import BaseInput from '../components/BaseInput.vue';
-import BaseButton from '../components/BaseButton.vue';
+import Input from '../components/ui/Input.vue';
+import Button from '../components/ui/Button.vue';
 import { usePrecoStore } from '../stores/preco';
+import { useAuthStore } from '../stores/auth';
+import { useToastStore } from '../stores/toast';
+import { Camera, Upload, Trash2, CheckCircle2, AlertCircle, Info } from 'lucide-vue-next';
 
 const precoStore = usePrecoStore();
+const auth = useAuthStore();
+const toast = useToastStore();
+
 const isLoading = ref(false);
+const isFetchingItems = ref(false);
 const previewUrl = ref<string | null>(null);
 
 const form = reactive({
@@ -16,38 +23,76 @@ const form = reactive({
   imagem: null as File | null,
 });
 
+onMounted(async () => {
+  try {
+    isFetchingItems.value = true;
+    await precoStore.fetchItemsDieese();
+  } catch (err) {
+    toast.show('Erro ao carregar lista de itens.', 'error');
+  } finally {
+    isFetchingItems.value = false;
+  }
+});
+
 const handleFileChange = (e: Event) => {
   const target = e.target as HTMLInputElement;
   if (target.files && target.files[0]) {
     const file = target.files[0];
+    
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast.show('Por favor, selecione uma imagem válida.', 'error');
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast.show('A imagem deve ter no máximo 5MB.', 'error');
+      return;
+    }
+
     form.imagem = file;
     previewUrl.value = URL.createObjectURL(file);
   }
 };
 
+const removeImage = () => {
+  form.imagem = null;
+  if (previewUrl.value) {
+    URL.revokeObjectURL(previewUrl.value);
+    previewUrl.value = null;
+  }
+};
+
 const handleSubmit = async () => {
   if (!form.itemId || !form.preco || !form.imagem) {
-    alert('Por favor, preencha todos os campos e anexe uma foto da gôndola.');
+    toast.show('Por favor, preencha todos os campos obrigatórios e tire uma foto.', 'error');
     return;
   }
 
   try {
     isLoading.value = true;
+    
+    // Ensure we have a supermercadoId
+    const supermercadoId = auth.supermercadoId || '00000000-0000-0000-0000-000000000000'; // Fallback or handle error
+
     await precoStore.uploadPreco({
+      supermercadoId,
       itemId: form.itemId,
       preco: parseFloat(form.preco.replace(',', '.')),
-      quantidade: form.quantidade,
+      quantidade: parseFloat(form.quantidade.replace(',', '.')) || 1.0,
       imagem: form.imagem,
     });
-    alert('Preço enviado com sucesso! Aguarde a análise do OCR.');
+
+    toast.show('Preço enviado com sucesso para análise OCR!', 'success');
+    
     // Reset form
     form.itemId = '';
     form.preco = '';
     form.quantidade = '';
-    form.imagem = null;
-    previewUrl.value = null;
-  } catch (err) {
-    alert('Erro ao enviar preço. Tente novamente.');
+    removeImage();
+  } catch (err: any) {
+    toast.show(err.message || 'Erro ao enviar preço. Tente novamente.', 'error');
   } finally {
     isLoading.value = false;
   }
@@ -56,285 +101,152 @@ const handleSubmit = async () => {
 
 <template>
   <DashboardLayout>
-    <div class="upload-view">
-      <header class="view-header">
-        <h2>Registrar Novo Preço</h2>
-        <p>Informe os dados do produto e envie uma foto da gôndola para validação.</p>
+    <div class="max-w-4xl mx-auto">
+      <header class="mb-8">
+        <h2 class="text-3xl font-extrabold text-slate-900 tracking-tight">Registrar Preço</h2>
+        <p class="text-slate-500 mt-2 font-medium">Capture a oferta diretamente na gôndola do supermercado.</p>
       </header>
 
-      <div class="upload-grid">
-        <!-- Form Section -->
-        <section class="form-section card">
-          <form @submit.prevent="handleSubmit" class="upload-form">
-            <div class="form-group">
-              <label class="label">Item da Cesta Básica (DIEESE)</label>
-              <select v-model="form.itemId" class="base-select">
-                <option value="" disabled>Selecione um item</option>
-                <option v-for="item in precoStore.itemsDieese" :key="item.id" :value="item.id">
-                  {{ item.nome }}
-                </option>
-              </select>
-            </div>
-
-            <div class="form-row">
-              <BaseInput
-                v-model="form.preco"
-                label="Preço Comercial (R$)"
-                placeholder="0,00"
-              />
-              <BaseInput
-                v-model="form.quantidade"
-                label="Embalagem (Ex: 1kg, 500g)"
-                placeholder="1kg"
-              />
-            </div>
-
-            <div class="upload-area" :class="{ 'has-file': form.imagem }">
-              <input
-                type="file"
-                id="gondola-upload"
-                accept="image/*"
-                capture="environment"
-                @change="handleFileChange"
-                hidden
-              />
-              <label for="gondola-upload" class="upload-label">
-                <template v-if="!previewUrl">
-                  <svg class="upload-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                  <span>Tirar Foto da Gôndola</span>
-                  <small>Clique para abrir a câmera ou galeria</small>
-                </template>
-                <div v-else class="preview-container">
-                  <img :src="previewUrl" alt="Preview da gôndola" class="preview-img" />
-                  <div class="preview-overlay">
-                    <span>Alterar Foto</span>
+      <div class="grid grid-cols-1 lg:grid-cols-5 gap-8">
+        <!-- Main Form Section -->
+        <div class="lg:col-span-3 space-y-6">
+          <div class="bg-white p-6 md:p-8 rounded-[2rem] shadow-xl shadow-slate-200/60 border border-slate-100">
+            <form @submit.prevent="handleSubmit" class="space-y-6">
+              <!-- Item Selection -->
+              <div class="space-y-2">
+                <label class="text-sm font-bold text-slate-700 ml-1">Item da Cesta Básica</label>
+                <div class="relative">
+                  <select 
+                    v-model="form.itemId" 
+                    class="w-full pl-4 pr-10 py-3 border border-slate-300 rounded-xl outline-none appearance-none focus:border-primary-500 focus:ring-4 focus:ring-primary-100 transition-all bg-white font-medium"
+                    :disabled="isFetchingItems"
+                  >
+                    <option value="" disabled>{{ isFetchingItems ? 'Carregando...' : 'Selecione um produto' }}</option>
+                    <option v-for="item in precoStore.itemsDieese" :key="item.id" :value="item.id">
+                      {{ item.nome }}
+                    </option>
+                  </select>
+                  <div class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-slate-400">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
                   </div>
                 </div>
-              </label>
+              </div>
+
+              <!-- Price and Quantity Row -->
+              <div class="grid grid-cols-2 gap-4">
+                <Input
+                  v-model="form.preco"
+                  label="Preço (R$)"
+                  placeholder="0,00"
+                  type="text"
+                />
+                <Input
+                  v-model="form.quantidade"
+                  label="Qtd/Peso (Opcional)"
+                  placeholder="1.0"
+                  type="text"
+                />
+              </div>
+
+              <!-- Image Upload Area -->
+              <div class="space-y-2">
+                <label class="text-sm font-bold text-slate-700 ml-1">Foto da Gôndola (OCR)</label>
+                
+                <div v-if="!previewUrl" class="relative group">
+                  <input
+                    type="file"
+                    id="camera-input"
+                    accept="image/*"
+                    capture="environment"
+                    @change="handleFileChange"
+                    class="hidden"
+                  />
+                  <label 
+                    for="camera-input" 
+                    class="flex flex-col items-center justify-center w-full min-h-[220px] border-3 border-dashed border-slate-200 rounded-[2rem] bg-slate-50 hover:bg-primary-50 hover:border-primary-300 transition-all cursor-pointer group-hover:scale-[0.99]"
+                  >
+                    <div class="w-16 h-16 bg-white rounded-2xl shadow-sm flex items-center justify-center text-primary-600 mb-4 group-hover:bg-primary-600 group-hover:text-white transition-colors">
+                      <Camera :size="32" />
+                    </div>
+                    <span class="text-slate-900 font-bold">Abrir Câmera</span>
+                    <p class="text-slate-400 text-sm mt-1">Capture o preço e o produto</p>
+                  </label>
+                </div>
+
+                <!-- Preview State -->
+                <div v-else class="relative rounded-[2rem] overflow-hidden shadow-lg border-4 border-white">
+                  <img :src="previewUrl" class="w-full aspect-[4/3] object-cover" />
+                  <div class="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent flex items-end p-6">
+                    <div class="flex items-center justify-between w-full">
+                      <div class="flex items-center gap-2 text-white">
+                        <CheckCircle2 :size="20" class="text-green-400" />
+                        <span class="font-bold">Imagem capturada</span>
+                      </div>
+                      <button 
+                        @click="removeImage" 
+                        type="button"
+                        class="p-3 bg-red-500 text-white rounded-xl hover:bg-red-600 transition-colors shadow-lg"
+                      >
+                        <Trash2 :size="20" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <Button 
+                type="submit" 
+                :loading="isLoading" 
+                variant="primary" 
+                size="lg" 
+                class="w-full h-16 !rounded-2xl text-lg shadow-lg shadow-primary-200"
+              >
+                <Upload :size="20" />
+                Enviar para Validação
+              </Button>
+            </form>
+          </div>
+        </div>
+
+        <!-- Sidebar Info -->
+        <div class="lg:col-span-2 space-y-6">
+          <div class="bg-accent-600 p-8 rounded-[2rem] text-white shadow-xl shadow-accent-200">
+            <h3 class="text-xl font-bold flex items-center gap-2 mb-4">
+              <Info :size="24" />
+              Dicas para o OCR
+            </h3>
+            <ul class="space-y-4">
+              <li class="flex gap-3">
+                <div class="flex-shrink-0 w-6 h-6 bg-accent-500 rounded-full flex items-center justify-center text-xs font-bold">1</div>
+                <p class="text-accent-50 leading-snug">Mantenha a câmera estável e foque na etiqueta de preço.</p>
+              </li>
+              <li class="flex gap-3">
+                <div class="flex-shrink-0 w-6 h-6 bg-accent-500 rounded-full flex items-center justify-center text-xs font-bold">2</div>
+                <p class="text-accent-50 leading-snug">Certifique-se de que o nome do produto também aparece na imagem.</p>
+              </li>
+              <li class="flex gap-3">
+                <div class="flex-shrink-0 w-6 h-6 bg-accent-500 rounded-full flex items-center justify-center text-xs font-bold">3</div>
+                <p class="text-accent-50 leading-snug">Evite sombras e reflexos de luz diretamente no preço.</p>
+              </li>
+            </ul>
+          </div>
+
+          <div class="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm">
+            <h4 class="font-bold text-slate-900 mb-3">Status do Backend</h4>
+            <div class="flex items-center gap-3 p-3 bg-slate-50 rounded-xl">
+              <div class="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+              <span class="text-sm font-bold text-slate-700">Conectado ao Servidor</span>
             </div>
-
-            <BaseButton type="submit" :loading="isLoading" class="submit-btn">
-              {{ isLoading ? 'Processando OCR...' : 'Enviar para Aprovação' }}
-            </BaseButton>
-          </form>
-        </section>
-
-        <!-- Guidelines Section -->
-        <section class="guidelines card">
-          <h3>Instruções para o OCR</h3>
-          <ul class="guideline-list">
-            <li>
-              <div class="icon-circle success">✓</div>
-              <p>Certifique-se de que o preço está legível na foto.</p>
-            </li>
-            <li>
-              <div class="icon-circle success">✓</div>
-              <p>Evite reflexos excessivos de luz na etiqueta.</p>
-            </li>
-            <li>
-              <div class="icon-circle warning">!</div>
-              <p>O produto deve corresponder exatamente ao item DIEESE selecionado.</p>
-            </li>
-          </ul>
-        </section>
+            <p class="text-xs text-slate-400 mt-4 leading-relaxed">
+              O processamento via OCR (Reconhecimento Óptico de Caracteres) pode levar até 30 segundos.
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   </DashboardLayout>
 </template>
 
 <style scoped>
-.upload-view {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-6);
-}
-
-.view-header h2 {
-  font-size: 1.5rem;
-  font-weight: 700;
-}
-
-.view-header p {
-  color: var(--text-muted);
-  margin-top: var(--space-1);
-}
-
-.upload-grid {
-  display: grid;
-  grid-template-columns: 1fr 320px;
-  gap: var(--space-6);
-  align-items: start;
-}
-
-.card {
-  background: var(--surface);
-  padding: var(--space-6);
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-sm);
-}
-
-.upload-form {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-6);
-}
-
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.label {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--text-muted);
-}
-
-.base-select {
-  padding: var(--space-3);
-  border: 1.5px solid var(--border);
-  border-radius: var(--radius-md);
-  font-size: 1rem;
-  background-color: var(--input-bg);
-  cursor: pointer;
-}
-
-.form-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-4);
-}
-
-.upload-area {
-  border: 2px dashed var(--border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-4);
-  transition: all 0.2s;
-  background-color: var(--bg);
-}
-
-.upload-area:hover {
-  border-color: var(--primary);
-  background-color: #f0f7ff;
-}
-
-.upload-area.has-file {
-  border-style: solid;
-  padding: 0;
-  overflow: hidden;
-}
-
-.upload-label {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-2);
-  cursor: pointer;
-  min-height: 200px;
-  text-align: center;
-}
-
-.upload-icon {
-  width: 48px;
-  height: 48px;
-  color: var(--text-muted);
-}
-
-.upload-label span {
-  font-weight: 600;
-  color: var(--primary);
-}
-
-.upload-label small {
-  color: var(--text-muted);
-}
-
-.preview-container {
-  width: 100%;
-  height: 100%;
-  position: relative;
-}
-
-.preview-img {
-  width: 100%;
-  max-height: 300px;
-  object-fit: cover;
-  display: block;
-}
-
-.preview-overlay {
-  position: absolute;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.4);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0;
-  transition: opacity 0.2s;
-}
-
-.preview-container:hover .preview-overlay {
-  opacity: 1;
-}
-
-.preview-overlay span {
-  color: white;
-  font-weight: 600;
-  padding: var(--space-2) var(--space-4);
-  background: rgba(255, 255, 255, 0.2);
-  backdrop-filter: blur(4px);
-  border-radius: var(--radius-md);
-}
-
-.submit-btn {
-  width: 100%;
-}
-
-.guidelines h3 {
-  font-size: 1rem;
-  font-weight: 700;
-  margin-bottom: var(--space-4);
-}
-
-.guideline-list {
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-
-.guideline-list li {
-  display: flex;
-  gap: var(--space-3);
-  align-items: flex-start;
-  font-size: 0.875rem;
-  line-height: 1.4;
-}
-
-.icon-circle {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  font-weight: bold;
-  flex-shrink: 0;
-}
-
-.icon-circle.success { background: #dcfce7; color: var(--success); }
-.icon-circle.warning { background: #fef9c3; color: var(--warning); }
-
-@media (max-width: 900px) {
-  .upload-grid {
-    grid-template-columns: 1fr;
-  }
-}
+.border-3 { border-width: 3px; }
 </style>

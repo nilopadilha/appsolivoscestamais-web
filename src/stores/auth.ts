@@ -1,23 +1,26 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import type { User, AuthResponse } from '../types';
-import api from '../api/client';
+import type { User } from '../types';
+import { authService } from '../services/auth.service';
 
 export const useAuthStore = defineStore('auth', () => {
-  const user = ref<User | null>(JSON.parse(localStorage.getItem('user') || 'null'));
-  const token = ref<string | null>(localStorage.getItem('token'));
+  const user = ref<User | null>(null);
+  const token = ref<string | null>(null);
+  const role = ref<string | null>(null);
+  const supermercadoId = ref<string | null>(null);
 
   const isAuthenticated = computed(() => !!token.value);
 
   async function login(cnpj: string, senha: string) {
     try {
-      const { data } = await api.post<AuthResponse>('/auth/login', { cnpj, senha });
+      const data = await authService.login(cnpj, senha);
       
       token.value = data.token;
       user.value = data.user;
-
-      localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify(data.user));
+      role.value = data.user.role;
+      // In a real scenario, the backend might return the supermercadoId 
+      // directly or it might be a property of the user
+      supermercadoId.value = (data.user as any).supermercadoId || null;
       
       return true;
     } catch (error) {
@@ -29,15 +32,20 @@ export const useAuthStore = defineStore('auth', () => {
   function logout() {
     token.value = null;
     user.value = null;
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    role.value = null;
+    supermercadoId.value = null;
+    localStorage.removeItem('auth');
   }
 
   return {
     user,
     token,
+    role,
+    supermercadoId,
     isAuthenticated,
     login,
     logout,
   };
+}, {
+  persist: true
 });

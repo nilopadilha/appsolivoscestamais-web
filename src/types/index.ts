@@ -17,9 +17,10 @@ export interface DieeseItem {
 }
 
 export interface PrecoUpload {
+  supermercadoId: string;
   itemId: string;
   preco: number;
-  quantidade: string;
+  quantidade: number;
   imagem: File | null;
 }
 
